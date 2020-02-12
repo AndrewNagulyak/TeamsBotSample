@@ -38,14 +38,8 @@ namespace Microsoft.BotBuilderSamples
 
         protected override async Task OnMembersAddedAsync(IList<ChannelAccount> membersAdded, ITurnContext<IConversationUpdateActivity> turnContext, CancellationToken cancellationToken)
         {
-            foreach (var member in membersAdded)
-            {
-                // Greet anyone that was not the target (recipient) of this message.
-                if (member.Id != turnContext.Activity.Recipient.Id)
-                {
+          
                     await turnContext.SendActivityAsync(MessageFactory.Text(WelcomeMessage), cancellationToken);
-                }
-            }
         }
 
         protected override async Task OnMessageActivityAsync(ITurnContext<IMessageActivity> turnContext, CancellationToken cancellationToken)
@@ -53,7 +47,7 @@ namespace Microsoft.BotBuilderSamples
             AddConversationReference(turnContext.Activity as Activity);
 
             // Echo back what the user said
-            await turnContext.SendActivityAsync(MessageFactory.Text($"You sent '{turnContext.Activity.Text}'"), cancellationToken);
+            await turnContext.SendActivityAsync(MessageFactory.Text($"You senta '{turnContext.Activity.Text}'"), cancellationToken);
         }
     }
 }

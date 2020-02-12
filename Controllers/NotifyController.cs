@@ -1,7 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation. All rights reserved.
-// Licensed under the MIT License.
-
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Threading;
@@ -14,13 +11,14 @@ using Microsoft.Extensions.Configuration;
 
 namespace ProactiveBot.Controllers
 {
-    [Route("api/notify")]
+    [Route("api/notify/{userid?}")]
     [ApiController]
     public class NotifyController : ControllerBase
     {
         private readonly IBotFrameworkHttpAdapter _adapter;
         private readonly string _appId;
         private readonly ConcurrentDictionary<string, ConversationReference> _conversationReferences;
+
 
         public NotifyController(IBotFrameworkHttpAdapter adapter, IConfiguration configuration, ConcurrentDictionary<string, ConversationReference> conversationReferences)
         {
@@ -37,27 +35,37 @@ namespace ProactiveBot.Controllers
             }
         }
 
-        public async Task<IActionResult> Get()
+        public async Task<IActionResult> Post(string userid, [FromBody] NotifyMessage notifyMessage)
         {
-            foreach (var conversationReference in _conversationReferences.Values)
+
+            if (string.IsNullOrEmpty(userid))
             {
-                await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, BotCallback, default(CancellationToken));
+                foreach (var conversationReference in _conversationReferences.Values)
+                {
+                    await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, (ITurnContext turnContext, CancellationToken cancellationToken) => turnContext.SendActivityAsync(notifyMessage.message + _conversationReferences.Values.), default(CancellationToken));
+                }
             }
-            
+            else
+            {
+                _conversationReferences.TryGetValue(userid, out var conversationReference);
+                await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, (ITurnContext turnContext, CancellationToken cancellationToken) => turnContext.SendActivityAsync(notifyMessage.message), default(CancellationToken));
+            }
+
+
             // Let the caller know proactive messages have been sent
             return new ContentResult()
             {
-                Content = "<html><body><h1>Proactive messages have been sent.</h1></body></html>",
+                Content = "<html><body><h1>Proactive messages have been sent:" + userid + "</h1></body></html>",
                 ContentType = "text/html",
                 StatusCode = (int)HttpStatusCode.OK,
             };
         }
 
-        private async Task BotCallback(ITurnContext turnContext, CancellationToken cancellationToken)
-        {
-            // If you encounter permission-related errors when sending this message, see
-            // https://aka.ms/BotTrustServiceUrl
-            await turnContext.SendActivityAsync("proactive hello");
-        }
+    }
+
+    public class NotifyMessage
+    {
+        public string message { get; set; }
+
     }
 }
