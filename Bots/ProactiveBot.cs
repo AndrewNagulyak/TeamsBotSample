@@ -6,11 +6,12 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Bot.Builder;
+using Microsoft.Bot.Builder.Teams;
 using Microsoft.Bot.Schema;
 
 namespace Microsoft.BotBuilderSamples
 {
-    public class ProactiveBot : ActivityHandler
+    public class ProactiveBot : TeamsActivityHandler
     {
         // Message to send to users when the bot receives a Conversation Update event
         private const string WelcomeMessage = "Welcome to the Proactive Bot sample.  Navigate to http://localhost:3978/api/notify to proactively message everyone who has previously messaged this bot.";
