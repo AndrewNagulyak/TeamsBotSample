@@ -18,7 +18,7 @@ namespace Microsoft.BotBuilderSamples
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
-          
+
             // Create the Bot Framework Adapter with error handling enabled.
             services.AddSingleton<IBotFrameworkHttpAdapter, AdapterWithErrorHandler>();
 
@@ -26,7 +26,18 @@ namespace Microsoft.BotBuilderSamples
             services.AddSingleton<ConcurrentDictionary<string, ConversationReference>>();
 
             // Create the bot as a transient. In this case the ASP Controller is expecting an IBot.
+            var storage = new MemoryStorage();
+
+            // Create the User state passing in the storage layer.
+            var userState = new UserState(storage);
+            services.AddSingleton(userState);
+
+            // Create the Conversation state passing in the storage layer.
+            var conversationState = new ConversationState(storage);
+            services.AddSingleton(conversationState);
             services.AddTransient<IBot, ProactiveBot>();
+
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

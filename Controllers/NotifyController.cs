@@ -6,26 +6,30 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using System.IO;
 using Microsoft.Bot.Builder;
 using Microsoft.Bot.Builder.Integration.AspNet.Core;
-using Microsoft.Bot.Connector;
 using Microsoft.Bot.Schema;
 using Microsoft.Extensions.Configuration;
 using System.Linq;
 using Microsoft.Bot.Builder.Teams;
 using Microsoft.Bot.Schema.Teams;
+using ProactiveBot.Models.Messages;
+using ProactiveBot.AdaptiveCardRepository;
 
 namespace ProactiveBot.Controllers
 {
-    [Route("api/notify/{userid?}")]
+    [Route("api/notify")]
     [ApiController]
     public class NotifyController : ControllerBase
     {
         private readonly IBotFrameworkHttpAdapter _adapter;
         private readonly string _appId;
         private readonly ConcurrentDictionary<string, ConversationReference> _conversationReferences;
-
-
+        private readonly string[] _cards =
+      {
+            Path.Combine(".", "Resources", "ApproveCard.json"),
+        };
         public NotifyController(IBotFrameworkHttpAdapter adapter, IConfiguration configuration, ConcurrentDictionary<string, ConversationReference> conversationReferences)
         {
             _adapter = adapter;
@@ -40,7 +44,49 @@ namespace ProactiveBot.Controllers
                 _appId = Guid.NewGuid().ToString(); //if no AppId, use a random Guid
             }
         }
+        [HttpPost]
+        public async Task<IActionResult> Data([FromBody] MessageList notifyMessages)
+        {
+            var i = 0;
 
+            if (notifyMessages.MessageType == "2")
+            {
+                foreach (var conversationReference in _conversationReferences.Values)
+                {
+                    
+                    await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, async (ITurnContext turnContext, CancellationToken cancellationToken) =>
+                    {
+                        IEnumerable<TeamsChannelAccount> members = TeamsInfo.GetMembersAsync(turnContext, cancellationToken).Result;
+                        foreach (var member in members)
+                        {
+                            foreach (var notifyMessage in notifyMessages.messages)
+                            {
+                                if (notifyMessage.AssignedTo == member.UserPrincipalName)
+                                {
+                                    i++;
+                                    SecondMessageType message = new SecondMessageType();
+                                    message.AssignedTo = notifyMessage.AssignedTo;
+                                    message.MessageType = notifyMessage.MessageType;
+                                    message.InProgressTasks = notifyMessage.InProgressTasks;
+                                    message.Link = notifyMessage.Link;
+                                    message.TerminateTasks = notifyMessage.TerminateTasks;
+                                    message.NewTasks = notifyMessage.NewTasks;
+                                    var cardAttachment = AdaptiveCardFactory.CreateAdaptiveCardSecondTypeAttachment(member.Name, message);
+                                    await turnContext.SendActivityAsync(MessageFactory.Attachment(cardAttachment), cancellationToken);
+                                }
+                            }
+                        }
+                    }, default(CancellationToken));
+                }
+            }
+            return new ContentResult()
+            {
+                Content = "<html><body><h1>Proactive messages have been sent:" + i + "users" + "</h1></body></html>",
+                ContentType = "text/html",
+                StatusCode = (int)HttpStatusCode.OK,
+            };
+        }
+        [HttpPost("{userid?}")]
         public async Task<IActionResult> Post(string userid, [FromBody] NotifyMessage notifyMessage)
         {
             var sb = new StringBuilder();
@@ -51,7 +97,7 @@ namespace ProactiveBot.Controllers
                 foreach (var conversationReference in _conversationReferences.Values)
                 {
 
-                    await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, (ITurnContext turnContext, CancellationToken cancellationToken) =>
+                    await ((BotAdapter)_adapter).ContinueConversationAsync(_appId, conversationReference, async (ITurnContext turnContext, CancellationToken cancellationToken) =>
                     {
                         IEnumerable<TeamsChannelAccount> members = TeamsInfo.GetMembersAsync(turnContext, cancellationToken).Result;
                         //var connector = new ConnectorClient(new Uri(turnContext.Activity.ServiceUrl));
@@ -66,45 +112,66 @@ namespace ProactiveBot.Controllers
                                 switch (notifyMessage.MessageType)
                                 {
                                     case "1":
+                                    case "3":
                                         {
                                             flag = true;
-                                            FirstMessageType message = new FirstMessageType();
+                                           
+                                            ThirdMessageType message = new ThirdMessageType();
+                                            message.AssignedTo = notifyMessage.AssignedTo;
+                                            message.MessageType = notifyMessage.MessageType;
                                             message.IDCard = notifyMessage.IDCard;
                                             message.IDTask = notifyMessage.IDTask;
                                             message.LibDispName = notifyMessage.LibDispName;
                                             message.TitleTask = notifyMessage.TitleTask;
-                                            message.Link = notifyMessage.IDCard;
-                                            return turnContext.SendActivityAsync(notifyMessage.BuildFirstMessage(message));
+                                            message.Link = notifyMessage.Link;
+                                            message.TaskType = notifyMessage.TaskType;
+                                            if (message.TaskType == "LSTaskAppruve" || message.TaskType == "LSTaskExecute")
+                                            {
+                                                var cardAttachment = AdaptiveCardFactory.CreateAdaptiveCardForSubmitAttachment(message);
+                                                var req = await turnContext.SendActivityAsync(MessageFactory.Attachment(cardAttachment), cancellationToken);
+                                                message.Key = req.Id;
+                                                var cardWithId = AdaptiveCardFactory.CreateAdaptiveCardForSubmitAttachment(message);
+                                                var requestWithId = MessageFactory.Attachment(cardWithId);
+                                                requestWithId.Id = req.Id;
+                                                await turnContext.UpdateActivityAsync(requestWithId, cancellationToken);
+                                            }
+                                            else
+                                            {
+                                                var cardAttachment=AdaptiveCardFactory.CreateAdaptiveCardThirdTypeAttachment(message); ;
+                                                if (message.MessageType == "3")
+                                                {
+                                                     cardAttachment = AdaptiveCardFactory.CreateAdaptiveCardThirdTypeAttachment(message);
+                                                }
+                                                else
+                                                {
+                                                     cardAttachment = AdaptiveCardFactory.CreateAdaptiveCardFirstTypeAttachment(message);
+
+                                                }
+                                                await turnContext.SendActivityAsync(MessageFactory.Attachment(cardAttachment), cancellationToken);
+                                            }
+                                            break;
                                         }
                                     case "2":
                                         {
                                             flag = true;
 
                                             SecondMessageType message = new SecondMessageType();
+                                            message.AssignedTo = notifyMessage.AssignedTo;
+                                            message.MessageType = notifyMessage.MessageType;
                                             message.InProgressTasks = notifyMessage.InProgressTasks;
                                             message.Link = notifyMessage.Link;
                                             message.TerminateTasks = notifyMessage.TerminateTasks;
                                             message.NewTasks = notifyMessage.NewTasks;
-                                            return turnContext.SendActivityAsync(notifyMessage.BuildSecondMessage(member.Name,message));
+                                            var cardAttachment = AdaptiveCardFactory.CreateAdaptiveCardSecondTypeAttachment(member.Name, message);
+                                            await turnContext.SendActivityAsync(MessageFactory.Attachment(cardAttachment), cancellationToken);
+                                            break;
                                         }
-                                    case "3":
-                                        {
-                                            flag = true;
-
-                                            ThirdMessageType message = new ThirdMessageType();
-                                            message.IDCard = notifyMessage.IDCard;
-                                            message.IDTask = notifyMessage.IDTask;
-                                            message.LibDispName = notifyMessage.LibDispName;
-                                            message.TitleTask = notifyMessage.TitleTask;
-                                            message.Link = notifyMessage.IDCard;
-                                            return turnContext.SendActivityAsync(notifyMessage.BuildThirdMessage(message));
-                                        }
+                                    
 
 
                                 }
                             }
                         }
-                        return null;
                     }, default(CancellationToken));
                 }
             }
@@ -120,86 +187,22 @@ namespace ProactiveBot.Controllers
             // Let the caller know proactive messages have been sent
             return new ContentResult()
             {
-                Content = "<html><body><h1>Proactive messages have been sent:" + userid + "status = " + flag+ "data =  " + sb.ToString() +"</h1></body></html>",
+                Content = "<html><body><h1>Proactive messages have been sent:" + userid + "status = " + flag + "data =  " + sb.ToString() + "</h1></body></html>",
                 ContentType = "text/html",
                 StatusCode = (int)HttpStatusCode.OK,
             };
         }
 
-    }
-
-    public class NotifyMessage
-    {
-        public string BuildFirstMessage(FirstMessageType message)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Вам назаченна задача {message.TitleTask} ID = {message.IDTask},")
-                .AppendLine($"[карточка №{message.IDCard}]({message.Link}), библиотека = {message.LibDispName}.");
-            return sb.ToString();
-        }
-        public string BuildSecondMessage(string displayName, SecondMessageType message)
-        {
-            var sb = new StringBuilder();
-
-            sb.AppendLine($"{displayName}, в Вашем личном кабинете LSDOCS \n")
-                .AppendLine($"{message.NewTasks} новых задач\n")
-                .AppendLine($"{message.InProgressTasks} задач в роботе\n ")
-                .AppendLine($"{message.NewTasks} проверочнных задач\n")
-                .AppendLine($"[Чтобы перейти в личный кабинет нажмите здесь]({message.Link})\n");
-
-            return sb.ToString();
-        }
-        public string BuildThirdMessage(ThirdMessageType message)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Задача {message.TitleTask} ID = {message.IDTask},")
-                .AppendLine($"[в карточке №{message.IDCard}]({message.Link})в библиотеке {message.LibDispName}, будет простроченна через 24 часа.");
-            return sb.ToString();
-        }
-        public string MessageType { get; set; }
-        public string AssignedTo { get; set; }
-        public string TitleTask { get; set; }
-        public string IDTask { get; set; }
-        public string Link { get; set; }
-        public string LibDispName { get; set; }
-        public string NewTasks { get; set; }
-        public string InProgressTasks { get; set; }
-        public string TerminateTasks { get; set; }
-        public string IDCard { get; set; }
 
     }
-    public class Message
-    {
-        public string MessageType { get; set; }
-        public string AssignedTo { get; set; }
-    }
 
-    public class FirstMessageType : Message
-    {
-        
-        public string TitleTask { get; set; }
-        public string IDTask { get; set; }
-        public string Link { get; set; }
-        public string IDCard { get; set; }
-        public string LibDispName { get; set; }
-    }
-    public class SecondMessageType : Message
-    {
-        
-        public string NewTasks { get; set; }
-        public string InProgressTasks { get; set; }
-        public string Link { get; set; }
-        public string TerminateTasks { get; set; }
-    }
-    public class ThirdMessageType : Message
-    {
 
-        public string IDTask { get; set; }
-        public string TitleTask { get; set; }
-        public string IDCard { get; set; }
-        public string LibDispName { get; set; }
-        public string Link { get; set; }
 
-    }
+
+
+
+
+
+
 
 }
